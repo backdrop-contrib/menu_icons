@@ -1,0 +1,6 @@
+name = Menu Icons
+description = Adds icon selection and rendering to menu links using the Backdrop Icon API.
+package = Menus
+type = module
+dependencies[] = menu
+backdrop = 1.x

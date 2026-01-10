@@ -1,0 +1,131 @@
+<?php
+/**
+ * @file
+ * Adds Backdrop Icon API support to menu links.
+ */
+
+/**
+ * Implements hook_library_info().
+ */
+function menu_icon_library_info() {
+  $path = backdrop_get_path('module', 'menu_icon');
+
+  $libraries['menu_icon.assets'] = array(
+    'title' => 'Menu icon assets',
+    'css' => array(
+      $path . '/css/menu_icon.css' => array(),
+    ),
+  );
+
+  return $libraries;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for menu_edit_item().
+ */
+function menu_icon_form_menu_edit_item_alter(&$form, &$form_state) {
+  $item = isset($form['original_item']['#value']) ? $form['original_item']['#value'] : array();
+  $stored_icon = '';
+  if (!empty($item['options']['menu_icon'])) {
+    $icon_source = $item['options']['menu_icon'];
+    $stored_icon = is_array($icon_source) && isset($icon_source['name']) ? (string) $icon_source['name'] : (string) $icon_source;
+  }
+
+  $form['menu_icon'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Menu icon'),
+    '#default_value' => $stored_icon,
+    '#maxlength' => 128,
+    '#description' => t('Optional. Enter the machine name of a Backdrop core icon (for example @example). Leave empty to show no icon.', array('@example' => 'house')),
+    '#attributes' => array(
+      'placeholder' => t('e.g. house'),
+    ),
+    '#weight' => 12,
+  );
+
+  $form['#validate'][] = 'menu_icon_menu_edit_item_validate';
+  // Run our submit handler before the core menu_edit_item_submit so the icon
+  // value is present when the link is saved.
+  if (!in_array('menu_icon_menu_edit_item_submit', $form['#submit'])) {
+    array_unshift($form['#submit'], 'menu_icon_menu_edit_item_submit');
+  }
+}
+
+/**
+ * Validate the icon input on the menu item form.
+ */
+function menu_icon_menu_edit_item_validate($form, &$form_state) {
+  if (!isset($form_state['values']['menu_icon'])) {
+    return;
+  }
+  $icon = trim($form_state['values']['menu_icon']);
+  $form_state['values']['menu_icon'] = $icon;
+
+  if ($icon === '') {
+    return;
+  }
+
+  if (!preg_match('/^[A-Za-z0-9_-]+$/', $icon)) {
+    form_set_error('menu_icon', t('Icons may only contain letters, numbers, underscores, and hyphens.'));
+    return;
+  }
+
+  if (!icon_get_path($icon)) {
+    form_set_error('menu_icon', t('The icon "@icon" was not found in core, the active theme, or any enabled modules.', array('@icon' => $icon)));
+  }
+}
+
+/**
+ * Submit handler for menu icon support on menu_edit_item().
+ */
+function menu_icon_menu_edit_item_submit($form, &$form_state) {
+  if (!isset($form_state['values']['menu_icon'])) {
+    return;
+  }
+  $icon = trim($form_state['values']['menu_icon']);
+
+  if ($icon === '') {
+    if (isset($form_state['values']['options']['menu_icon'])) {
+      unset($form_state['values']['options']['menu_icon']);
+    }
+    return;
+  }
+
+  if (!isset($form_state['values']['options']) || !is_array($form_state['values']['options'])) {
+    $form_state['values']['options'] = array();
+  }
+
+  // Store the icon on the menu link options and allow translation alterations.
+  $form_state['values']['options']['menu_icon'] = $icon;
+  $form_state['values']['options']['alter'] = TRUE;
+}
+
+/**
+ * Implements hook_translated_menu_link_alter().
+ */
+function menu_icon_translated_menu_link_alter(&$item, $map) {
+  if (empty($item['options']['menu_icon'])) {
+    return;
+  }
+
+  $icon_source = $item['options']['menu_icon'];
+  $icon_name = is_array($icon_source) && isset($icon_source['name']) ? (string) $icon_source['name'] : (string) $icon_source;
+  $icon_name = trim($icon_name);
+  if ($icon_name === '' || !icon_get_path($icon_name)) {
+    return;
+  }
+
+  // Respect existing HTML settings on the link title.
+  $label = $item['title'];
+  if (empty($item['localized_options']['html'])) {
+    $label = check_plain($label);
+  }
+
+  $icon_markup = icon($icon_name);
+  $item['localized_options']['html'] = TRUE;
+  $item['localized_options']['attributes']['class'][] = 'has-menu-icon';
+  $item['localized_options']['attributes']['class'][] = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
+  $item['title'] = '<span class="menu-icon-wrapper"><span class="menu-icon-glyph">' . $icon_markup . '</span><span class="menu-icon-label"> ' . $label . '</span></span>';
+
+  backdrop_add_library('menu_icon', 'menu_icon.assets');
+}
