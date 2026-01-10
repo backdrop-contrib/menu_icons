@@ -12,12 +12,82 @@ function menu_icon_library_info() {
 
   $libraries['menu_icon.assets'] = array(
     'title' => 'Menu icon assets',
+    'version' => '1.0',
     'css' => array(
       $path . '/css/menu_icon.css' => array(),
     ),
   );
 
+  $libraries['menu_icon.picker'] = array(
+    'title' => 'Menu icon picker',
+    'version' => '1.0',
+    'js' => array(
+      $path . '/js/menu_icon_picker.js' => array(),
+    ),
+    'css' => array(
+      $path . '/css/menu_icon_picker.css' => array(),
+    ),
+  );
+
   return $libraries;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function menu_icon_menu() {
+  // Use a unique path to avoid collisions with contrib modules (e.g., icon_browser).
+  $items['admin/structure/menu/menu-icon-browser'] = array(
+    'page callback' => 'menu_icon_browser_json',
+    // Icon listings are non-sensitive; allow all users to fetch the JSON.
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'delivery callback' => 'backdrop_json_output',
+    'page arguments' => array(),
+    'access arguments' => array(),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_boot(). Ensure a theme key exists early in bootstrap.
+ */
+function menu_icon_boot() {
+  menu_icon_ensure_theme_key();
+}
+
+/**
+ * Ensure we have a usable theme key when icon() is invoked outside bootstrap.
+ */
+function menu_icon_ensure_theme_key() {
+  if (!empty($GLOBALS['theme_key'])) {
+    return $GLOBALS['theme_key'];
+  }
+
+  $config = config('system.core');
+  $admin_theme = $config->get('admin_theme');
+  $default_theme = $config->get('theme_default');
+
+  // Prefer admin theme if configured; fall back to default theme.
+  foreach (array($admin_theme, $default_theme) as $candidate) {
+    if (!empty($candidate)) {
+      $GLOBALS['theme_key'] = $candidate;
+      return $candidate;
+    }
+  }
+
+  // If theme system is available, pick any enabled theme as a last resort.
+  if (function_exists('list_themes')) {
+    $themes = list_themes();
+    if (!empty($themes)) {
+      $fallback = key($themes);
+      $GLOBALS['theme_key'] = $fallback;
+      return $fallback;
+    }
+  }
+
+  return '';
 }
 
 /**
@@ -41,6 +111,20 @@ function menu_icon_form_menu_edit_item_alter(&$form, &$form_state) {
       'placeholder' => t('e.g. house'),
     ),
     '#weight' => 12,
+    '#field_suffix' => '<button type="button" class="button button-secondary menu-icon-picker-launch" data-target="edit-menu-icon" data-endpoint="' . check_plain(base_path() . 'admin/structure/menu/menu-icon-browser') . '">' . t('Browse icons') . '</button>',
+  );
+
+  $form['#attached']['library'][] = array('menu_icon', 'menu_icon.assets');
+  $form['#attached']['library'][] = array('menu_icon', 'menu_icon.picker');
+  $form['#attached']['js'][] = array(
+    'type' => 'setting',
+    'data' => array(
+      'menuIconPicker' => array(
+        // Default endpoint; JS will prefer the per-button data-endpoint.
+        'endpoint' => base_path() . 'admin/structure/menu/menu-icon-browser',
+        'limit' => 40,
+      ),
+    ),
   );
 
   $form['#validate'][] = 'menu_icon_menu_edit_item_validate';
@@ -98,6 +182,106 @@ function menu_icon_menu_edit_item_submit($form, &$form_state) {
   // Store the icon on the menu link options and allow translation alterations.
   $form_state['values']['options']['menu_icon'] = $icon;
   $form_state['values']['options']['alter'] = TRUE;
+}
+
+/**
+ * Page callback: JSON icon search endpoint.
+ */
+function menu_icon_browser_json() {
+  // Avoid warnings in _icon_from_theme() when no theme has been initialized.
+  menu_icon_ensure_theme_key();
+
+  $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 40;
+  $limit = max(1, min(100, $limit));
+  $page = isset($_GET['page']) ? (int) $_GET['page'] : 0;
+  $page = max(0, $page);
+  // Use a dedicated search parameter; ignore 'q' which is used for path routing.
+  $query = isset($_GET['search']) ? trim(backdrop_strtolower($_GET['search'])) : '';
+
+  // Force rebuild to avoid stale/empty cache issues on this endpoint.
+  $icons = menu_icon_get_all_names(TRUE);
+  $debug_count = count($icons);
+  $debug_sample = $debug_count ? array_slice($icons, 0, 3) : array();
+  if ($query !== '') {
+    $icons = array_values(array_filter($icons, function ($name) use ($query) {
+      return strpos(backdrop_strtolower($name), $query) !== FALSE;
+    }));
+  }
+
+  sort($icons, SORT_STRING);
+  $total = count($icons);
+  $offset = $page * $limit;
+  $page_icons = array_slice($icons, $offset, $limit);
+
+  $results = array();
+  foreach ($page_icons as $name) {
+    $results[] = array(
+      'name' => $name,
+      'markup' => icon($name),
+    );
+  }
+
+  return array(
+    'total' => $total,
+    'count' => count($results),
+    'page' => $page,
+    'limit' => $limit,
+    'results' => $results,
+    'debug' => array('count_before_filter' => $debug_count, 'total_calculated' => $total, 'sample' => $debug_sample, 'query' => $query),
+  );
+}
+
+/**
+ * Build a cached list of available icon names.
+ */
+function menu_icon_get_all_names($rebuild = FALSE) {
+  // Ensure a theme is available before looking for theme icons.
+  menu_icon_ensure_theme_key();
+
+  $cache = cache('cache')->get('menu_icon_all_names');
+  if (!$rebuild && $cache && is_array($cache->data)) {
+    return $cache->data;
+  }
+
+  $names = array();
+
+  // Core icon set.
+  $core_dir = BACKDROP_ROOT . '/core/misc/icons';
+  $names = array_merge($names, menu_icon_names_from_directory($core_dir));
+
+  // Active theme icons (if present).
+  if (!empty($GLOBALS['theme_key'])) {
+    $theme_dir = backdrop_get_path('theme', $GLOBALS['theme_key']) . '/icons';
+    $names = array_merge($names, menu_icon_names_from_directory(BACKDROP_ROOT . '/' . $theme_dir));
+  }
+
+  // Module-provided icons via hook_icon_info().
+  $icon_info = icon_get_info();
+  if (!empty($icon_info)) {
+    $names = array_merge($names, array_keys($icon_info));
+  }
+
+  $names = array_unique($names);
+  sort($names, SORT_STRING);
+
+  cache('cache')->set('menu_icon_all_names', $names, CACHE_TEMPORARY);
+
+  return $names;
+}
+
+/**
+ * Collect icon names from a directory of SVGs.
+ */
+function menu_icon_names_from_directory($directory) {
+  $names = array();
+  if (!is_dir($directory)) {
+    return $names;
+  }
+  $files = file_scan_directory($directory, '/\.svg$/');
+  foreach ($files as $file) {
+    $names[] = basename($file->filename, '.svg');
+  }
+  return $names;
 }
 
 /**

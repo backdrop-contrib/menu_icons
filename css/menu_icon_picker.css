@@ -1,0 +1,97 @@
+.menu-icon-picker-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    border: 1px solid #ccc;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 10010;
+    width: min(900px, 90vw);
+    max-height: 80vh;
+    display: none;
+    flex-direction: column;
+}
+
+.menu-icon-picker-modal.is-open {
+    display: flex;
+}
+
+body.menu-icon-picker-open {
+    overflow: hidden;
+}
+
+.menu-icon-picker-header {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.menu-icon-picker-search {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 14px;
+}
+
+.menu-icon-picker-close {
+    min-width: 36px;
+    line-height: 1;
+}
+
+.menu-icon-picker-message {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #555;
+}
+
+.menu-icon-picker-results {
+    padding: 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+    overflow: auto;
+    flex: 1;
+}
+
+.menu-icon-picker-result {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fafafa;
+    cursor: pointer;
+}
+
+.menu-icon-picker-result:hover,
+.menu-icon-picker-result:focus {
+    border-color: #888;
+    outline: none;
+}
+
+.menu-icon-picker-swatch .icon {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+}
+
+.menu-icon-picker-name {
+    font-size: 13px;
+    color: #222;
+    text-align: left;
+}
+
+.menu-icon-picker-pager {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-top: 1px solid #e5e5e5;
+    justify-content: flex-end;
+}
+
+.menu-icon-picker-page-status {
+    font-size: 13px;
+}
