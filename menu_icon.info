@@ -4,3 +4,5 @@ package = Menus
 type = module
 dependencies[] = menu
 backdrop = 1.x
+maintainers[alanmels] = Alan Mels
+maintainers_wanted = TRUE
