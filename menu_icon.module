@@ -182,6 +182,199 @@ function menu_icon_menu_edit_item_submit($form, &$form_state) {
   // Store the icon on the menu link options and allow translation alterations.
   $form_state['values']['options']['menu_icon'] = $icon;
   $form_state['values']['options']['alter'] = TRUE;
+
+  // Ensure Admin Bar cache picks up icon changes immediately.
+  _menu_icon_flush_admin_bar_cache();
+}
+
+/**
+ * Implements hook_menu_link_insert().
+ */
+function menu_icon_menu_link_insert($link) {
+  _menu_icon_flush_admin_bar_cache();
+}
+
+/**
+ * Implements hook_menu_link_update().
+ */
+function menu_icon_menu_link_update($link) {
+  _menu_icon_flush_admin_bar_cache();
+}
+
+/**
+ * Implements hook_menu_link_delete().
+ */
+function menu_icon_menu_link_delete($link) {
+  _menu_icon_flush_admin_bar_cache();
+}
+
+/**
+ * Clear Admin Bar caches so icon changes show immediately.
+ */
+function _menu_icon_flush_admin_bar_cache() {
+  if (module_exists('admin_bar')) {
+    cache('admin_bar')->flush();
+    backdrop_static_reset('admin_bar_cache_get');
+  }
+}
+
+// Note: Backdrop does not implement hook_page_build; front-end assets are
+// added via more targeted alters and preprocess functions elsewhere.
+
+/**
+ * Implements hook_form_FORM_ID_alter() for menu_overview_form.
+ */
+function menu_icon_form_menu_overview_form_alter(&$form, &$form_state, $form_id) {
+  // Render icons inline in the menu overview table so admins can see them.
+  foreach ($form as &$element) {
+    if (!is_array($element) || empty($element['#item']['options']['menu_icon'])) {
+      continue;
+    }
+    $item = $element['#item'];
+    $icon_name = $item['options']['menu_icon'];
+    $icon_name = is_array($icon_name) && isset($icon_name['name']) ? $icon_name['name'] : $icon_name;
+    $icon_name = trim((string) $icon_name);
+    if ($icon_name === '' || !icon_get_path($icon_name)) {
+      continue;
+    }
+
+    // Rebuild the link with inline icon markup.
+    $options = !empty($item['localized_options']) ? $item['localized_options'] : array();
+    $options['html'] = TRUE;
+    $options['attributes']['class'][] = 'has-menu-icon';
+    $options['attributes']['class'][] = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
+    $options['attributes']['data-menu-icon-path'] = icon_get_path($icon_name);
+
+    $label = check_plain($item['title']);
+    $icon_markup = icon($icon_name);
+    $wrapped = '<span class="menu-icon-wrapper"><span class="menu-icon-glyph">' . $icon_markup . '</span><span class="menu-icon-label"> ' . $label . '</span></span>';
+
+    $element['title']['#markup'] = l($wrapped, $item['href'], $options);
+    backdrop_add_library('menu_icon', 'menu_icon.assets');
+  }
+}
+
+/**
+ * Implements hook_menu_tree_alter().
+ *
+ * Ensures front-end menus render icons inline (non-admin-bar menus).
+ */
+function menu_icon_menu_tree_alter(&$tree, $menu_name) {
+  foreach ($tree as &$element) {
+    if (!is_array($element) || empty($element['link']['options']['menu_icon'])) {
+      // Recurse into children regardless.
+      if (!empty($element['below'])) {
+        menu_icon_menu_tree_alter($element['below'], $menu_name);
+      }
+      continue;
+    }
+
+    $link = &$element['link'];
+    $icon_source = $link['options']['menu_icon'];
+    $icon_name = is_array($icon_source) && isset($icon_source['name']) ? $icon_source['name'] : $icon_source;
+    $icon_name = trim((string) $icon_name);
+    $icon_path = icon_get_path($icon_name);
+    if ($icon_name === '' || !$icon_path) {
+      if (!empty($element['below'])) {
+        menu_icon_menu_tree_alter($element['below'], $menu_name);
+      }
+      continue;
+    }
+
+    // Prepare classes and attributes.
+    $icon_class = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
+
+    // Make sure localized options exist.
+    if (empty($link['localized_options'])) {
+      $link['localized_options'] = $link['options'];
+    }
+
+    $link['localized_options']['attributes']['class'][] = 'has-menu-icon';
+    $link['localized_options']['attributes']['class'][] = $icon_class;
+    $link['localized_options']['attributes']['data-menu-icon-path'] = $icon_path;
+
+    // Also add to raw options so later alters/theming see it.
+    $link['options']['attributes']['class'][] = 'has-menu-icon';
+    $link['options']['attributes']['class'][] = $icon_class;
+    $link['options']['attributes']['data-menu-icon-path'] = $icon_path;
+
+    // De-duplicate classes.
+    foreach (array('localized_options', 'options') as $opt_key) {
+      if (!empty($link[$opt_key]['attributes']['class'])) {
+        $link[$opt_key]['attributes']['class'] = array_values(array_unique($link[$opt_key]['attributes']['class']));
+      }
+    }
+
+    if (!empty($element['below'])) {
+      menu_icon_menu_tree_alter($element['below'], $menu_name);
+    }
+  }
+}
+
+/**
+ * Preprocess menu links to render icon markup for non-admin menus.
+ */
+function menu_icon_preprocess_menu_link(&$variables) {
+  $element = &$variables['element'];
+
+  // Skip Admin Bar; it renders icons via its own pipeline.
+  if (!empty($element['#original_link']['menu_name']) && $element['#original_link']['menu_name'] === 'admin_bar') {
+    return;
+  }
+
+  // Determine the icon name from the Icon API option or stored menu_icon.
+  $icon_name = '';
+  if (!empty($element['#localized_options']['icon'])) {
+    $icon_name = $element['#localized_options']['icon'];
+  }
+  elseif (!empty($element['#original_link']['options']['menu_icon'])) {
+    $src = $element['#original_link']['options']['menu_icon'];
+    $icon_name = is_array($src) && isset($src['name']) ? $src['name'] : $src;
+  }
+  elseif (!empty($element['#attributes']['class'])) {
+    foreach ($element['#attributes']['class'] as $cls) {
+      if (strpos($cls, 'menu-icon-') === 0) {
+        $icon_name = substr($cls, strlen('menu-icon-'));
+        break;
+      }
+    }
+  }
+
+  $icon_name = trim((string) $icon_name);
+  if ($icon_name === '') {
+    return;
+  }
+
+  $icon_path = icon_get_path($icon_name);
+  if (!$icon_path) {
+    return;
+  }
+
+  // Avoid double wrapping if already processed.
+  if (is_string($element['#title']) && strpos($element['#title'], 'menu-icon-wrapper') !== FALSE) {
+    return;
+  }
+
+  $label = $element['#title'];
+  if (empty($element['#localized_options']['html'])) {
+    $label = check_plain($label);
+  }
+
+  $icon_markup = icon($icon_name);
+
+  // Ensure HTML rendering and set attributes for styling/JS if needed.
+  $element['#localized_options']['html'] = TRUE;
+  $element['#localized_options']['attributes']['class'][] = 'has-menu-icon';
+  $element['#localized_options']['attributes']['class'][] = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
+  $element['#localized_options']['attributes']['data-menu-icon-path'] = $icon_path;
+
+  if (!empty($element['#localized_options']['attributes']['class'])) {
+    $element['#localized_options']['attributes']['class'] = array_values(array_unique($element['#localized_options']['attributes']['class']));
+  }
+
+  $element['#title'] = '<span class="menu-icon-wrapper"><span class="menu-icon-glyph">' . $icon_markup . '</span><span class="menu-icon-label"> ' . $label . '</span></span>';
+
+  backdrop_add_library('menu_icon', 'menu_icon.assets');
 }
 
 /**
@@ -295,21 +488,23 @@ function menu_icon_translated_menu_link_alter(&$item, $map) {
   $icon_source = $item['options']['menu_icon'];
   $icon_name = is_array($icon_source) && isset($icon_source['name']) ? (string) $icon_source['name'] : (string) $icon_source;
   $icon_name = trim($icon_name);
-  if ($icon_name === '' || !icon_get_path($icon_name)) {
+  $icon_path = icon_get_path($icon_name);
+  if ($icon_name === '' || !$icon_path) {
     return;
   }
+  $icon_class = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
 
-  // Respect existing HTML settings on the link title.
-  $label = $item['title'];
-  if (empty($item['localized_options']['html'])) {
-    $label = check_plain($label);
-  }
-
-  $icon_markup = icon($icon_name);
-  $item['localized_options']['html'] = TRUE;
+  // Use the Icon API option so the renderer outputs the icon inline.
+  $item['localized_options']['icon'] = $icon_name;
   $item['localized_options']['attributes']['class'][] = 'has-menu-icon';
-  $item['localized_options']['attributes']['class'][] = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
-  $item['title'] = '<span class="menu-icon-wrapper"><span class="menu-icon-glyph">' . $icon_markup . '</span><span class="menu-icon-label"> ' . $label . '</span></span>';
+  $item['localized_options']['attributes']['class'][] = $icon_class;
+  $item['localized_options']['attributes']['data-menu-icon-path'] = $icon_path;
+
+  // De-duplicate classes in case other modules added their own.
+  if (!empty($item['localized_options']['attributes']['class'])) {
+    $item['localized_options']['attributes']['class'] = array_values(array_unique($item['localized_options']['attributes']['class']));
+  }
 
   backdrop_add_library('menu_icon', 'menu_icon.assets');
 }
+

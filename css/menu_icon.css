@@ -9,7 +9,6 @@
     width: 1em;
     height: 1em;
     position: relative;
-    top: 3px;
 }
 
 /* Admin menu list pages have tighter line-height; lift icons slightly there. */
@@ -19,4 +18,10 @@ form#menu-overview-form .menu-icon-glyph .icon {
 
 .menu-icon-label {
     line-height: 1.2;
+}
+
+/* Ensure admin bar icons remain visible after cache rebuilds. */
+#admin-bar .has-menu-icon .admin-bar-link-icon {
+    display: inline-block !important;
+    vertical-align: middle;
 }
