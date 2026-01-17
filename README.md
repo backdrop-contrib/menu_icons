@@ -1,7 +1,7 @@
-Menu Icon
+Menu Icons
 =========
 
-Menu Icon lets editors pick icon classes for menu links via a popup icon
+Menu Icons lets editors pick icon classes for menu links via a popup icon
 browser on the menu link form. Choose an icon, confirm the preview, and the
 icon class is stored with the link so themes can render icons alongside link
 text.
