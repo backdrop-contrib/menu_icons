@@ -27,7 +27,7 @@ Issues
 ------
 
 Bugs and Feature Requests should be reported in the Issue Queue:
-https://github.com/backdrop-contrib/menu_icon/issues.
+https://github.com/backdrop-contrib/menu_icons/issues.
 
 
 Current Maintainers
