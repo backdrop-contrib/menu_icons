@@ -378,6 +378,37 @@ function menu_icons_preprocess_menu_link(&$variables) {
 }
 
 /**
+ * Implements hook_preprocess_menu_local_action().
+ *
+ * Renders icon markup for local action links that carry a menu_icon option.
+ */
+function menu_icons_preprocess_menu_local_action(&$variables) {
+  $link = &$variables['element']['#link'];
+
+  $icon_name = trim((string) ($link['localized_options']['menu_icon'] ?? ''));
+  if ($icon_name === '') {
+    return;
+  }
+
+  $icon_path = icon_get_path($icon_name);
+  if (!$icon_path) {
+    return;
+  }
+
+  $label = empty($link['localized_options']['html'])
+    ? check_plain($link['title'])
+    : $link['title'];
+
+  $link['localized_options']['html'] = TRUE;
+  $link['localized_options']['attributes']['class'][] = 'has-menu-icon';
+  $link['localized_options']['attributes']['class'][] = 'menu-icon-' . backdrop_clean_css_identifier($icon_name);
+
+  $link['title'] = '<span class="menu-icon-wrapper"><span class="menu-icon-glyph">' . icon($icon_name) . '</span><span class="menu-icon-label"> ' . $label . '</span></span>';
+
+  backdrop_add_library('menu_icons', 'menu_icons.assets');
+}
+
+/**
  * Page callback: JSON icon search endpoint.
  */
 function menu_icons_browser_json() {
